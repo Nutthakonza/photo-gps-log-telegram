@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <title>ถ่ายภาพ + Log เข้า Telegram</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    body { font-family: sans-serif; text-align: center; padding: 10px; }
+    #preview { max-width: 100%; margin-top: 10px; }
+    textarea { width: 90%; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h2>📷 ถ่ายภาพ + บันทึก Log ส่ง Telegram</h2>
+  <input type="file" accept="image/*" capture="environment" id="imageInput"><br>
+  <textarea id="text" rows="2" placeholder="กรอกข้อความเพิ่มเติม..."></textarea><br>
+  <button onclick="submitData()">📤 ส่งเข้า Telegram</button><br>
+  <img id="preview">
+  <canvas id="canvas" style="display:none"></canvas>
+
+  <script>
+    const botToken = "7831899278:AAEZZyoadFqO-6VGwPhHukKopcQX0iEnniU";
+    const chatId = "-1002585891071";
+    let locationStr = "";
+
+    navigator.geolocation.getCurrentPosition(async pos => {
+      const lat = pos.coords.latitude;
+      const lon = pos.coords.longitude;
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&accept-language=th`);
+      const data = await res.json();
+      locationStr = data.display_name || `${lat.toFixed(6)},${lon.toFixed(6)}`;
+    });
+
+    document.getElementById("imageInput").addEventListener("change", function(e) {
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        document.getElementById("preview").src = evt.target.result;
+      };
+      reader.readAsDataURL(e.target.files[0]);
+    });
+
+    async function submitData() {
+      const img = document.getElementById("preview");
+      const msg = document.getElementById("text").value;
+      if (!img.src) return alert("กรุณาเลือกรูปภาพ");
+
+      const now = new Date().toLocaleString("th-TH");
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      ctx.drawImage(img, 0, 0);
+      ctx.fillStyle = "rgba(0,0,0,0.6)";
+      ctx.fillRect(0, canvas.height-180, canvas.width, 180);
+      ctx.fillStyle = "#fff";
+      ctx.font = "40px sans-serif";
+      ctx.fillText("📅 " + now, 20, canvas.height - 130);
+      ctx.fillText("📍 " + locationStr, 20, canvas.height - 80);
+      ctx.fillText("📝 " + msg, 20, canvas.height - 30);
+
+      canvas.toBlob(async function(blobImg) {
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.aoa_to_sheet([
+          ["ลำดับ", "วันเวลา", "สถานที่", "ข้อความ"],
+          [1, now, locationStr, msg]
+        ]);
+        XLSX.utils.book_append_sheet(wb, ws, "Log");
+        const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+        const excelBlob = new Blob([wbout], { type: "application/octet-stream" });
+
+        const photoData = new FormData();
+        photoData.append("chat_id", chatId);
+        photoData.append("photo", blobImg, "photo.jpg");
+        await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+          method: "POST",
+          body: photoData
+        });
+
+        const excelData = new FormData();
+        excelData.append("chat_id", chatId);
+        excelData.append("document", excelBlob, "log.xlsx");
+        await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
+          method: "POST",
+          body: excelData
+        });
+
+        alert("✅ ส่งภาพและ Excel เรียบร้อย");
+      }, "image/jpeg");
+    }
+  </script>
+</body>
+</html>
